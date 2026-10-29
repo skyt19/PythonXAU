@@ -88,22 +88,68 @@ class TestPositionSizerNoRoundUp(unittest.TestCase):
 
 
 class TestFillingModeResolution(unittest.TestCase):
-    """Filling mode must come from broker metadata."""
+    """
+    Filling mode must be validated against the broker, not assumed.
 
-    def test_respects_fok_support(self):
-        tester = ForwardTester()
-        info = Mock(filling_mode=mt5.ORDER_FILLING_FOK)
-        self.assertEqual(tester._resolve_filling_mode(info), mt5.ORDER_FILLING_FOK)
+    symbol_info.filling_mode is a mask whose bits do not correspond to the
+    ORDER_FILLING_* request values, so the mode is probed with order_check.
+    """
 
-    def test_respects_ioc_support(self):
+    def _tester_with_probe(self, accepted_mode):
         tester = ForwardTester()
-        info = Mock(filling_mode=mt5.ORDER_FILLING_IOC)
-        self.assertEqual(tester._resolve_filling_mode(info), mt5.ORDER_FILLING_IOC)
+        tester.symbol = "XAUUSD"
+        return tester
 
-    def test_respects_return_support(self):
-        tester = ForwardTester()
-        info = Mock(filling_mode=mt5.ORDER_FILLING_RETURN)
-        self.assertEqual(tester._resolve_filling_mode(info), mt5.ORDER_FILLING_RETURN)
+    @patch("scripts.forward_test.mt5.symbol_info_tick")
+    @patch("scripts.forward_test.mt5.order_check")
+    def test_fok_accepted_when_broker_agrees(self, mock_check, mock_tick):
+        mock_tick.return_value = Mock(ask=4011.0, bid=4010.5)
+        mock_check.return_value = Mock(
+            retcode=0, comment="Done", margin=8.04, margin_free=56.03
+        )
+
+        tester = self._tester_with_probe(mt5.ORDER_FILLING_FOK)
+        mode = tester._resolve_filling_mode(Mock(filling_mode=1, name="XAUUSD"))
+
+        self.assertEqual(mode, mt5.ORDER_FILLING_FOK)
+
+    @patch("scripts.forward_test.mt5.symbol_info_tick")
+    @patch("scripts.forward_test.mt5.order_check")
+    def test_unsupported_mode_is_skipped(self, mock_check, mock_tick):
+        mock_tick.return_value = Mock(ask=4011.0, bid=4010.5)
+
+        def side_effect(request):
+            if request["type_filling"] == mt5.ORDER_FILLING_FOK:
+                return Mock(
+                    retcode=10030,
+                    comment="Unsupported filling mode",
+                    margin=0.0,
+                    margin_free=0.0,
+                )
+            return Mock(retcode=0, comment="Done", margin=8.04, margin_free=56.03)
+
+        mock_check.side_effect = side_effect
+
+        tester = self._tester_with_probe(mt5.ORDER_FILLING_IOC)
+        mode = tester._resolve_filling_mode(Mock(filling_mode=1, name="XAUUSD"))
+
+        # FOK rejected -> falls through to the next accepted mode
+        self.assertEqual(mode, mt5.ORDER_FILLING_IOC)
+
+    @patch("scripts.forward_test.mt5.symbol_info_tick")
+    @patch("scripts.forward_test.mt5.order_check")
+    def test_mode_is_cached_after_resolution(self, mock_check, mock_tick):
+        mock_tick.return_value = Mock(ask=4011.0, bid=4010.5)
+        mock_check.return_value = Mock(
+            retcode=0, comment="Done", margin=8.04, margin_free=56.03
+        )
+
+        tester = self._tester_with_probe(mt5.ORDER_FILLING_FOK)
+        tester._resolve_filling_mode(Mock(filling_mode=1, name="XAUUSD"))
+        calls_after_first = mock_check.call_count
+        tester._resolve_filling_mode(Mock(filling_mode=1, name="XAUUSD"))
+
+        self.assertEqual(mock_check.call_count, calls_after_first)
 
 
 class TestJsonSafety(unittest.TestCase):
@@ -151,8 +197,10 @@ class TestOrderPreflightValidation(unittest.TestCase):
                 mock_tick.return_value = Mock(ask=4011.0, bid=4010.5)
                 with patch("scripts.forward_test.mt5.order_check") as mock_check:
                     mock_check.return_value = Mock(
-                        retcode=mt5.TRADE_RETCODE_ERROR,
+                        retcode=10019,  # TRADE_RETCODE_NO_MONEY
                         comment="Not enough money",
+                        margin=0.0,
+                        margin_free=0.0,
                     )
                     with patch("scripts.forward_test.mt5.order_send") as mock_send:
                         result = tester._submit_order(
@@ -177,7 +225,9 @@ class TestOrderPreflightValidation(unittest.TestCase):
                 mock_tick.return_value = Mock(ask=4011.0, bid=4010.5)
                 with patch("scripts.forward_test.mt5.order_check") as mock_check:
                     mock_check.return_value = Mock(
-                        retcode=mt5.TRADE_RETCODE_DONE,
+                        retcode=0,
+                        comment="Done",
+                        balance=1000.0,
                         margin=10.0,
                         margin_free=100.0,
                     )

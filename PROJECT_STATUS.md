@@ -315,6 +315,27 @@ To achieve a **working system** fastest:
 **STATUS**: 🚧 Foundation complete, core implementation in progress
 **NEXT**: Continue systematic module creation following critical path
 
+## Task Checklist (forward testing)
+
+- [x] Forward-test runtime entry point (`scripts/forward_test.py`)
+- [x] Real trained model + scaler + feature schema loaded and validated
+- [x] Completed M15 candle detection, one process per candle
+- [x] Live HFM MT5 DEMO connection verified
+- [x] DEMO account classification fixed (MT5 trade_mode constants were swapped)
+- [x] Demo server allowlist covers the real HFM server name
+- [x] Position sizing uses broker tick metadata; never rounds up to min lot
+- [x] Spread, risk, account, volume and order pre-check gates
+- [x] Filling mode validated against the broker via order_check
+- [x] Signal/trade persistence with reasons and timestamps
+- [x] Position monitoring, exit classification, broker reconciliation
+- [x] Restart-safe state and reconciliation before new entries
+- [x] Safety tests for every fail-closed path (66 tests passing)
+- [x] Operator documentation (docs/FORWARD_TESTING.md)
+- [ ] **Real DEMO order filled** - blocked: demo balance $64.07 is below the
+      broker minimum lot risk ($14.17 at a 142 pip ATR stop) for a 1% risk
+      budget. Needs ~$1,417 demo balance. Order request shape is accepted by
+      the broker via order_check (margin $8.04 of $56.03 free).
+
 ## GitHub Backup Status
 
 **Remote**: https://github.com/skyt19/PythonXAU  

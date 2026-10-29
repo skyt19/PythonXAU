@@ -155,6 +155,7 @@ class ForwardTester:
         self.running = False
         self.verified_account = None
         self._verified_login = None
+        self._filling_mode = None
         self.last_heartbeat = None
 
         # Performance tracking
@@ -987,27 +988,76 @@ class ForwardTester:
 
     def _resolve_filling_mode(self, symbol_info) -> int:
         """
-        Choose a filling mode the broker actually supports for this symbol.
+        Choose a filling mode this broker actually accepts for this symbol.
 
-        Falls back through the broker's advertised modes rather than
-        hardcoding one, because the wrong mode is rejected by the server.
+        symbol_info.filling_mode is a mask whose meaning does not line up
+        with the ORDER_FILLING_* request values (ORDER_FILLING_FOK is 0, so
+        it contributes no bits). On the HFM demo server the advertised mask
+        is 1 while the server only accepts FOK, so the mask cannot be
+        trusted on its own.
+
+        The mode is therefore probed with order_check, which validates a
+        request without sending an order, and the first mode the server
+        accepts is cached.
         """
-        supported = symbol_info.filling_mode
+        if self._filling_mode is not None:
+            return self._filling_mode
 
-        # ORDER_FILLING_FOK == 0, so it contributes no bits to the mask.
-        # The advertised mask therefore encodes IOC (bit 0) and RETURN (bit 1);
-        # a mask of 0 means FOK only.
-        if supported & mt5.ORDER_FILLING_IOC:
-            return mt5.ORDER_FILLING_IOC
-        if supported & mt5.ORDER_FILLING_RETURN:
-            return mt5.ORDER_FILLING_RETURN
-        if supported == mt5.ORDER_FILLING_FOK:
-            return mt5.ORDER_FILLING_FOK
+        candidates = [
+            mt5.ORDER_FILLING_FOK,
+            mt5.ORDER_FILLING_IOC,
+            mt5.ORDER_FILLING_RETURN,
+        ]
+
+        tick = mt5.symbol_info_tick(self.symbol)
+        if tick is None:
+            logger.warning("No tick available; defaulting to FOK")
+            self._filling_mode = mt5.ORDER_FILLING_FOK
+            return self._filling_mode
+
+        price = tick.ask
+        for mode in candidates:
+            probe = {
+                "action": mt5.TRADE_ACTION_DEAL,
+                "symbol": self.symbol,
+                "volume": 0.01,
+                "type": mt5.ORDER_TYPE_BUY,
+                "price": price,
+                "deviation": 20,
+                "magic": 234000,
+                "comment": "probe",
+                "type_time": mt5.ORDER_TIME_GTC,
+                "type_filling": mode,
+            }
+            try:
+                check = mt5.order_check(probe)
+            except Exception:
+                continue
+
+            if check is None:
+                continue
+
+            comment = str(getattr(check, "comment", "") or "").lower()
+            if "unsupported filling mode" in comment:
+                logger.debug(f"Filling mode {mode} rejected by broker: {comment}")
+                continue
+
+            # order_check reports retcode 0 with a populated margin when the
+            # request is acceptable. A rejected request returns retcode 10030
+            # (unsupported filling mode) with zeroed balance/margin.
+            if check.retcode == 0 and getattr(check, "margin_free", 0) > 0:
+                logger.info(
+                    f"  Broker accepted filling mode {mode} "
+                    f"(advertised mask {symbol_info.filling_mode})"
+                )
+                self._filling_mode = mode
+                return mode
 
         logger.warning(
-            f"Unrecognized filling mode {supported} for {symbol_info.name}; using IOC"
+            "Could not determine a supported filling mode; defaulting to FOK"
         )
-        return mt5.ORDER_FILLING_IOC
+        self._filling_mode = mt5.ORDER_FILLING_FOK
+        return self._filling_mode
 
     def _submit_order(
         self,
@@ -1055,7 +1105,12 @@ class ForwardTester:
             if check is None:
                 logger.error("order_check returned None - cannot validate request")
                 return None
-            if check.retcode != mt5.TRADE_RETCODE_DONE:
+
+            # order_check uses retcode 0 for an acceptable request and
+            # retcode 10030 ("Unsupported filling mode") or a specific error
+            # code otherwise. Balance/margin are only populated when the
+            # request was actually evaluated.
+            if check.retcode != 0:
                 logger.error(
                     f"Order rejected by pre-check: retcode={check.retcode} "
                     f"comment={check.comment} "
@@ -1063,9 +1118,11 @@ class ForwardTester:
                     f"margin={getattr(check, 'margin', None)}"
                 )
                 return None
+
             logger.info(
                 f"  Pre-check OK: margin=${getattr(check, 'margin', 0):.2f} "
-                f"free=${getattr(check, 'margin_free', 0):.2f}"
+                f"free=${getattr(check, 'margin_free', 0):.2f} "
+                f"balance=${getattr(check, 'balance', 0):.2f}"
             )
 
             # Send order

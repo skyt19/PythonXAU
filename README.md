@@ -83,7 +83,24 @@ PythonXAU/
 
 ```
 
-## Quick Start
+## Forward Testing (primary entry point)
+
+The system runs continuously against the HFM MT5 **DEMO** terminal:
+
+```powershell
+cd C:\z
+python scripts/forward_test.py
+```
+
+Safety check before trading, then exit:
+
+```powershell
+python scripts/forward_test.py --preflight
+```
+
+Full operator guide: **[docs/FORWARD_TESTING.md](docs/FORWARD_TESTING.md)**
+
+### Quick Start
 
 ### 1. Install Dependencies
 
