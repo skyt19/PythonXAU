@@ -51,10 +51,12 @@ def test_signal_generation_low_confidence():
     )
 
     assert signal.signal == SignalType.NEUTRAL
+    assert signal.rejection_reason is not None
+    assert 'onfidence' in signal.rejection_reason
 
 
 def test_signal_generation_range():
-    """Test neutral signal in range regime."""
+    """Range regime does not permit directional entries."""
     gen = SignalGenerator()
 
     signal = gen.generate(
@@ -65,10 +67,11 @@ def test_signal_generation_range():
     )
 
     assert signal.signal == SignalType.NEUTRAL
+    assert 'RANGE' in signal.rejection_reason
 
 
 def test_signal_generation_high_volatility():
-    """Test neutral signal in high volatility regime."""
+    """High volatility regime blocks entries."""
     gen = SignalGenerator()
 
     signal = gen.generate(
@@ -79,6 +82,72 @@ def test_signal_generation_high_volatility():
     )
 
     assert signal.signal == SignalType.NEUTRAL
+    assert 'HIGH_VOLATILITY' in signal.rejection_reason
+
+
+def test_no_alignment_indicator_holds():
+    """Without a trend direction indicator the decision is HOLD."""
+    gen = SignalGenerator(confidence_threshold=0.6)
+
+    signal = gen.generate(
+        regime_pred='TREND',
+        regime_probs={'TREND': 0.9, 'RANGE': 0.05, 'HIGH_VOLATILITY': 0.05},
+        features={},
+        timestamp=datetime.now(),
+    )
+
+    assert signal.signal == SignalType.NEUTRAL
+    assert signal.rejection_reason is not None
+
+
+def test_ema_trend_short_fallback():
+    """ema_trend_short is used when ema_alignment is absent."""
+    gen = SignalGenerator(confidence_threshold=0.6)
+
+    bullish = gen.generate(
+        regime_pred='TREND',
+        regime_probs={'TREND': 0.9, 'RANGE': 0.05, 'HIGH_VOLATILITY': 0.05},
+        features={'ema_trend_short': 1.0},
+        timestamp=datetime.now(),
+    )
+    bearish = gen.generate(
+        regime_pred='TREND',
+        regime_probs={'TREND': 0.9, 'RANGE': 0.05, 'HIGH_VOLATILITY': 0.05},
+        features={'ema_trend_short': 0.0},
+        timestamp=datetime.now(),
+    )
+
+    assert bullish.signal == SignalType.LONG
+    assert bearish.signal == SignalType.SHORT
+
+
+def test_allowed_regimes_are_configurable():
+    """The set of regimes that may trade is configurable."""
+    gen = SignalGenerator(confidence_threshold=0.6, allowed_regimes={'TREND', 'RANGE'})
+
+    signal = gen.generate(
+        regime_pred='RANGE',
+        regime_probs={'TREND': 0.1, 'RANGE': 0.9, 'HIGH_VOLATILITY': 0.0},
+        features={'ema_alignment': 1.0},
+        timestamp=datetime.now(),
+    )
+
+    assert signal.signal == SignalType.LONG
+
+
+def test_rejection_reason_always_set_on_hold():
+    """Every HOLD carries an explanatory reason."""
+    gen = SignalGenerator(confidence_threshold=0.99)
+
+    for regime in ['TREND', 'RANGE', 'HIGH_VOLATILITY']:
+        signal = gen.generate(
+            regime_pred=regime,
+            regime_probs={regime: 0.5},
+            features={'ema_alignment': 1.0},
+            timestamp=datetime.now(),
+        )
+        if signal.signal == SignalType.NEUTRAL:
+            assert signal.rejection_reason, f"No reason for {regime}"
 
 
 if __name__ == '__main__':

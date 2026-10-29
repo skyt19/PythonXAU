@@ -12,6 +12,7 @@ This script implements the forward-testing workflow:
 8. Logs all decisions and outcomes
 """
 import argparse
+import json
 import logging
 import pickle
 import signal
@@ -475,6 +476,7 @@ class ForwardTester:
                     self._process_cycle()
                 except Exception as e:
                     logger.error(f"Cycle {cycle_count} error: {e}", exc_info=True)
+                    self._write_status(running=True, last_error=str(e))
                     # Don't crash, continue running
 
                 # Sleep until next check
@@ -513,6 +515,13 @@ class ForwardTester:
 
         # Mark as processed immediately to prevent duplicates
         self.processed_candles.add(candle_time)
+
+        self._write_status(
+            running=True,
+            mode="FORWARD",
+            last_candle=candle_time.isoformat(),
+            last_error=None,
+        )
 
         # Keep only last 1000 candle timestamps in memory
         if len(self.processed_candles) > 1000:
@@ -554,7 +563,7 @@ class ForwardTester:
             return
 
         # Execute trade if signal is valid
-        if signal_result["action"] != "HOLD":
+        if signal_result is not None and signal_result["action"] != "HOLD":
             self._execute_trade(signal_result, candle)
 
     def _get_latest_completed_candle(self) -> Optional[dict]:
@@ -742,22 +751,34 @@ class ForwardTester:
                 action = "HOLD"
 
             if action == "HOLD":
-                logger.info("→ No trade signal")
-                self._save_signal_to_db(
-                    trading_signal, candle, ai_approved=False, rejection_reason="HOLD signal"
+                # The signal generator records why the trade was not taken
+                # (regime policy, confidence, missing trend direction).
+                reason = (
+                    getattr(trading_signal, "rejection_reason", None)
+                    or "HOLD signal"
                 )
-                return None
-
-            # Check confidence
-            if trading_signal.confidence < self.confidence_threshold:
-                logger.info(
-                    f"→ Confidence too low: {trading_signal.confidence:.2%} < {self.confidence_threshold:.2%}"
-                )
+                logger.info(f"→ No trade signal: {reason}")
                 self._save_signal_to_db(
                     trading_signal,
                     candle,
                     ai_approved=False,
-                    rejection_reason="Confidence below threshold",
+                    rejection_reason=reason,
+                )
+                return None
+
+            # Defence in depth: re-check confidence before execution.
+            if trading_signal.confidence < self.confidence_threshold:
+                reason = (
+                    f"Confidence below threshold: "
+                    f"{trading_signal.confidence:.2%} < "
+                    f"{self.confidence_threshold:.2%}"
+                )
+                logger.info(f"→ {reason}")
+                self._save_signal_to_db(
+                    trading_signal,
+                    candle,
+                    ai_approved=False,
+                    rejection_reason=reason,
                 )
                 return None
 
@@ -1496,6 +1517,36 @@ class ForwardTester:
             logger.error(f"ATR calculation failed: {e}")
             return None
 
+    def _write_status(self, **fields):
+        """
+        Publish runtime status so the dashboard can display it.
+
+        Written atomically (temp file + replace) so a reader never sees a
+        partially written file.
+        """
+        try:
+            status_path = Path("artifacts/forward_status.json")
+            status_path.parent.mkdir(parents=True, exist_ok=True)
+
+            current = {}
+            if status_path.exists():
+                try:
+                    with open(status_path) as f:
+                        current = json.load(f)
+                except Exception:
+                    current = {}
+
+            current.update(fields)
+            current["updated_at"] = datetime.utcnow().isoformat()
+
+            tmp = status_path.with_suffix(".tmp")
+            with open(tmp, "w") as f:
+                json.dump(current, f, indent=2)
+            tmp.replace(status_path)
+
+        except Exception as e:
+            logger.error(f"Failed to write runtime status: {e}")
+
     def _monitor_open_positions(self):
         """
         Reconcile broker positions with local records and manage exits.
@@ -1725,6 +1776,7 @@ class ForwardTester:
         logger.info("=" * 70)
 
         self.running = False
+        self._write_status(running=False, mode="STOPPED")
 
         if self.mt5_client:
             self.mt5_client.disconnect()

@@ -106,6 +106,13 @@ try:
 except ImportError as e:
     logger.warning(f"Could not import API router: {e}")
 
+try:
+    from app.dashboard.forward_api import router as forward_router
+    app.include_router(forward_router)
+    logger.info("Forward-testing router included")
+except ImportError as e:
+    logger.warning(f"Could not import forward-testing router: {e}")
+
 
 @app.get("/")
 async def root():
