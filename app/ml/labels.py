@@ -38,12 +38,76 @@ class RegimeLabeler:
         self.lookforward = lookforward
         self.trend_threshold = trend_threshold
         self.volatility_threshold = volatility_threshold
+        self.thresholds_fitted = False
 
         logger.info(
             f"RegimeLabeler: lookforward={lookforward}, "
             f"trend_threshold={trend_threshold:.1%}, "
             f"vol_threshold={volatility_threshold:.1%}"
         )
+
+    def fit_thresholds(
+        self,
+        df: pd.DataFrame,
+        trend_percentile: float = 75.0,
+        volatility_percentile: float = 90.0,
+    ) -> dict:
+        """
+        Fit the label thresholds on training data only.
+
+        The thresholds define the regime boundaries, so they must not be
+        chosen by looking at the validation or test period. Percentiles are
+        computed from the training frame only and then applied unchanged to
+        every later split.
+
+        Args:
+            df: Training OHLC frame (training period only)
+            trend_percentile: Percentile of |forward return| that counts as a trend
+            volatility_percentile: Percentile of forward volatility that counts as high vol
+
+        Returns:
+            The fitted thresholds
+        """
+        if 'close' not in df.columns:
+            raise ValueError("DataFrame must have a 'close' column")
+
+        forward_return = df['close'].pct_change(periods=self.lookforward).shift(-self.lookforward)
+        forward_vol = (
+            df['close'].pct_change().rolling(self.lookforward).std().shift(-self.lookforward)
+        )
+
+        abs_returns = forward_return.abs().dropna()
+        vols = forward_vol.dropna()
+
+        if abs_returns.empty or vols.empty:
+            raise ValueError("Not enough data to fit label thresholds")
+
+        self.trend_threshold = float(np.percentile(abs_returns, trend_percentile))
+        self.volatility_threshold = float(np.percentile(vols, volatility_percentile))
+        self.thresholds_fitted = True
+
+        logger.info(
+            f"Fitted label thresholds on training data: "
+            f"trend={self.trend_threshold:.4%} (p{trend_percentile}), "
+            f"volatility={self.volatility_threshold:.4%} (p{volatility_percentile})"
+        )
+
+        return {
+            'trend_threshold': self.trend_threshold,
+            'volatility_threshold': self.volatility_threshold,
+            'trend_percentile': trend_percentile,
+            'volatility_percentile': volatility_percentile,
+            'lookforward': self.lookforward,
+        }
+
+    def get_thresholds(self) -> dict:
+        """Get the thresholds currently in use."""
+        return {
+            'trend_threshold': self.trend_threshold,
+            'volatility_threshold': self.volatility_threshold,
+            'lookforward': self.lookforward,
+            'fitted': self.thresholds_fitted,
+        }
 
     def generate_labels(
         self,

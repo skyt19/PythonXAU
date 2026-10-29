@@ -4,6 +4,7 @@ import logging
 from pathlib import Path
 import sys
 
+import numpy as np
 import torch
 from torch.utils.data import DataLoader
 
@@ -87,7 +88,30 @@ def train_lstm(train_dataset, val_dataset, test_dataset, args):
     save_path = Path(args.model_dir) / "best_model.pt"
     save_path.parent.mkdir(parents=True, exist_ok=True)
 
-    trainer = Trainer(model, device=device, learning_rate=args.lr)
+    # Class weights from the TRAINING split only.
+    # Without them the model collapses onto the majority class and never
+    # emits RANGE or HIGH_VOLATILITY, which disables the regime policies
+    # that are supposed to block entries in those regimes.
+    class_weights = None
+    if args.class_weights:
+        y_train = train_dataset.labels.numpy()
+        counts = np.bincount(y_train, minlength=3).astype(np.float64)
+        # Inverse frequency, normalized so the mean weight is 1.
+        weights = np.zeros_like(counts)
+        present = counts > 0
+        weights[present] = counts[present].sum() / (present.sum() * counts[present])
+        class_weights = torch.FloatTensor(weights)
+        logger.info(
+            f"Class weights (from train split): {class_weights.tolist()}"
+        )
+        logger.info(f"Class counts: {counts.tolist()}")
+
+    trainer = Trainer(
+        model,
+        device=device,
+        learning_rate=args.lr,
+        class_weights=class_weights,
+    )
 
     history = trainer.fit(
         train_loader,
@@ -132,6 +156,11 @@ def main():
     parser.add_argument('--dropout', type=float, default=0.3)
     parser.add_argument('--lr', type=float, default=0.001)
     parser.add_argument('--patience', type=int, default=20)
+    parser.add_argument(
+        '--class-weights',
+        action='store_true',
+        help='Use inverse-frequency class weights (recommended for imbalanced regimes)',
+    )
 
     args = parser.parse_args()
 

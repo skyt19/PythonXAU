@@ -43,6 +43,7 @@ class Trainer:
         device: str = 'cpu',
         learning_rate: float = 0.001,
         weight_decay: float = 0.0001,
+        class_weights: Optional[torch.Tensor] = None,
     ):
         self.model = model.to(device)
         self.device = device
@@ -51,7 +52,13 @@ class Trainer:
             lr=learning_rate,
             weight_decay=weight_decay,
         )
-        self.criterion = nn.CrossEntropyLoss()
+        if class_weights is not None:
+            self.criterion = nn.CrossEntropyLoss(
+                weight=class_weights.to(device)
+            )
+            logger.info(f"Using class weights: {class_weights.tolist()}")
+        else:
+            self.criterion = nn.CrossEntropyLoss()
 
     def train_epoch(self, dataloader: DataLoader) -> Dict[str, float]:
         """Train one epoch."""

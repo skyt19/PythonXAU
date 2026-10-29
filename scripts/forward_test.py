@@ -369,6 +369,17 @@ class ForwardTester:
             logger.info(f"  Feature columns: {self.feature_columns}")
             logger.info(f"  Sequence length: {self.sequence_length}")
 
+            # Label thresholds used to train this model (provenance)
+            thresholds = metadata.get("label_thresholds")
+            if thresholds:
+                logger.info(
+                    f"  Label thresholds: trend={thresholds.get('trend_threshold'):.4%}, "
+                    f"volatility={thresholds.get('volatility_threshold'):.4%}, "
+                    f"lookforward={thresholds.get('lookforward')} bars"
+                )
+            else:
+                logger.info("  Label thresholds: not recorded in dataset metadata")
+
             # Load model - infer architecture from checkpoint tensor shapes
             if not self.model_path.exists():
                 logger.error(f"Model not found: {self.model_path}")
@@ -1736,6 +1747,18 @@ def main():
     parser.add_argument("--max-spread", type=float, default=5.0, help="Max spread in pips")
     parser.add_argument("--dry-run", action="store_true", help="Log signals but don't execute")
     parser.add_argument(
+        "--model",
+        type=str,
+        default="artifacts/models/real/best_model.pt",
+        help="Trained model checkpoint",
+    )
+    parser.add_argument(
+        "--dataset",
+        type=str,
+        default="data/dataset_real.pkl",
+        help="Dataset pickle holding the scaler and feature schema",
+    )
+    parser.add_argument(
         "--preflight",
         action="store_true",
         help="Run setup and safety checks, report status, then exit",
@@ -1752,6 +1775,8 @@ def main():
     tester = ForwardTester(
         symbol="XAUUSD",
         timeframe="M15",
+        model_path=Path(args.model),
+        dataset_path=Path(args.dataset),
         check_interval=args.check_interval,
         confidence_threshold=args.confidence,
         max_risk_per_trade=args.max_risk,
