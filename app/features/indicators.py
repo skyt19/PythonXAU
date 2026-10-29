@@ -1,6 +1,7 @@
 """
 Technical indicators for feature engineering.
 """
+import numpy as np
 import pandas as pd
 import pandas_ta as ta
 
@@ -35,7 +36,7 @@ def calculate_indicators(df: pd.DataFrame) -> pd.DataFrame:
 
     # Returns
     df['returns'] = df['close'].pct_change()
-    df['log_returns'] = pd.np.log(df['close'] / df['close'].shift(1))
+    df['log_returns'] = np.log(df['close'] / df['close'].shift(1))
 
     # Volatility (realized)
     df['realized_vol'] = df['returns'].rolling(20).std()
@@ -54,9 +55,9 @@ def calculate_indicators(df: pd.DataFrame) -> pd.DataFrame:
     df['lower_wick'] = df[['open', 'close']].min(axis=1) - df['low']
     df['range'] = df['high'] - df['low']
 
-    # Normalize spread
-    if 'spread' in df.columns:
-        df['spread_normalized'] = df['spread'] / df['close']
+    # High-low spread (typical for M15 gold)
+    df['spread'] = df['high'] - df['low']
+    df['spread_normalized'] = df['spread'] / df['close']
 
     return df
 

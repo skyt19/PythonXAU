@@ -5,8 +5,10 @@ Creates PyTorch datasets with proper time-series handling.
 No look-ahead bias, no future leakage.
 """
 import logging
+import pickle
 from datetime import datetime
-from typing import Optional, Tuple
+from pathlib import Path
+from typing import Dict, Optional, Tuple
 
 import numpy as np
 import pandas as pd
@@ -217,3 +219,22 @@ class DatasetBuilder:
     def get_scaler(self) -> Optional[StandardScaler]:
         """Get the fitted scaler."""
         return self.scaler
+
+
+def save_datasets(
+    datasets: Dict,
+    output_path: Path,
+) -> None:
+    """Save datasets to disk."""
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(output_path, 'wb') as f:
+        pickle.dump(datasets, f)
+    logger.info(f"Datasets saved to {output_path}")
+
+
+def load_datasets(path: Path) -> Dict:
+    """Load datasets from disk."""
+    with open(path, 'rb') as f:
+        datasets = pickle.load(f)
+    logger.info(f"Datasets loaded from {path}")
+    return datasets

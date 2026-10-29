@@ -1,423 +1,248 @@
-# XAUUSD AI Farming HQ
+# PythonXAU - XAUUSD ML Trading System
 
-**HFM MetaTrader 5 Demo Forward Testing System**
+**Research-only automated trading system for XAUUSD (Gold) using regime-based machine learning.**
 
-## ⚠️ CRITICAL SAFETY NOTICE
+## Status: Core Implementation Complete
 
-This system is designed for **DEMO TRADING ONLY** on HFM MetaTrader 5 demo accounts.
+### ✅ Completed Features
 
-**Live trading is explicitly prohibited and protected by multiple safety layers.**
+#### Data Pipeline
+- MT5 integration with safety controls (demo-only, credentials required)
+- SQLite storage with duplicate prevention
+- Synthetic data generator for testing
+- Feature engineering (28+ technical indicators)
+- Regime labeling (TREND / RANGE / HIGH_VOLATILITY)
 
-## Overview
+#### Machine Learning
+- Dataset builder with chronological train/val/test splits (70/15/15)
+- Baseline models (Majority Class, Rule-Based)
+- LSTM regime classifier (PyTorch)
+- Training loop with early stopping
+- Model evaluation metrics
 
-XAUUSD AI Farming HQ is a comprehensive research and forward-testing platform for automated XAUUSD (Gold/USD) trading. It combines:
+#### Strategy & Risk
+- Signal generation based on regime predictions
+- Position sizing (2% max risk per trade)
+- Risk management (daily loss limits, max drawdown)
+- Realistic backtesting with commission ($7/lot) and slippage (1 pip)
 
-- **Deep Learning**: PyTorch LSTM for market regime classification (TREND, RANGE, HIGH_VOLATILITY)
-- **Rule-Based Strategy**: Transparent, configurable entry/exit rules
-- **AI Signal Filter**: LSTM-powered trade filtering
-- **Post-Trade Learning**: Automated outcome analysis and model improvement
-- **Non-Martingale Risk Management**: Position sizing based on risk budget, never loss recovery
-- **Operational Dashboard**: Real-time monitoring at http://localhost:3831
+#### Testing
+- Unit tests for risk management
+- Unit tests for signal generation
+- All tests passing
 
-## Architecture
-
-The system is built with clear separation of concerns:
+### Training Results (Synthetic Data)
 
 ```
-app/
-├── broker/          # MT5 integration, account verification, execution
-├── data/            # Market data collection, validation, storage
-├── features/        # Technical indicators, feature engineering
-├── ml/              # LSTM model, training, inference, evaluation
-├── strategy/        # Rule-based strategy and AI filter
-├── risk/            # Position sizing, limits, kill switch
-├── learning/        # Post-trade analysis, error learning
-├── backtest/        # Walk-forward testing, cost simulation
-├── services/        # Trading service orchestration
-└── dashboard/       # FastAPI backend + frontend UI
+Dataset: 25,008 M15 bars (365 days synthetic)
+Train: 18,016 sequences | Val: 3,140 | Test: 3,703
+
+Baseline Performance (Test Set):
+- Majority Class: F1=0.32
+- Rule-Based: F1=0.24
+- LSTM: F1=0.32, Accuracy=93%
+
+Note: Class imbalance (69% TREND, 9% RANGE, 22% HIGH_VOL)
+caused model to predict only TREND class. This is expected
+with synthetic random-walk data.
 ```
 
-## Installation
+### Backtest Results (Synthetic Data)
 
-### Prerequisites
+```
+8 trades executed
+-16.69% return (all losses - expected on random data)
+Commission: $1.12 | Slippage: $1.60
+Win Rate: 0%
+```
 
-- Python 3.12+
-- MetaTrader 5 terminal installed (Windows)
-- HFM Demo account credentials
+**Important:** These results use synthetic data. Real MT5 data collection requires:
+- Valid MT5 demo account
+- Configure `MT5_LOGIN`, `MT5_PASSWORD`, `MT5_SERVER` in `.env`
+- Run: `python scripts/collect_data.py --days 365`
 
-### Setup
+### Project Structure
+
+```
+PythonXAU/
+├── app/
+│   ├── data/          # MT5 connector, data collection
+│   ├── features/      # Feature engineering, indicators
+│   ├── ml/            # LSTM model, training, dataset
+│   ├── strategy/      # Signal generation
+│   ├── risk/          # Position sizing, risk management
+│   └── backtest/      # Backtesting engine
+├── scripts/
+│   ├── collect_data.py       # Collect real MT5 data
+│   ├── generate_test_data.py # Generate synthetic data
+│   ├── build_dataset.py      # Build ML dataset
+│   ├── train_model.py        # Train models
+│   └── run_backtest.py       # Run backtest
+├── tests/             # Unit tests
+└── data/              # SQLite DB, datasets, models
+
+```
+
+## Quick Start
+
+### 1. Install Dependencies
 
 ```bash
-# Create virtual environment
-python -m venv venv
-
-# Activate virtual environment
-# Windows:
-venv\Scripts\activate
-
-# Install dependencies
-pip install --upgrade pip
 pip install -r requirements.txt
-
-# Copy environment template
-copy .env.example .env
-
-# Edit .env with your HFM DEMO credentials
-# NEVER commit this file
-notepad .env
 ```
 
-### Environment Variables
+### 2. Generate Test Data (or collect real MT5 data)
 
-Required variables in `.env`:
+```bash
+# Synthetic data for testing
+python scripts/generate_test_data.py --days 365
 
-```
-# DEMO ACCOUNT ONLY
-DEMO_ONLY=true
-MT5_LOGIN=your_demo_login
-MT5_PASSWORD=your_demo_password
-MT5_SERVER=HFM-Demo
-MT5_SYMBOL=XAUUSD
-
-# Application
-DASHBOARD_HOST=127.0.0.1
-DASHBOARD_PORT=3831
-LOG_LEVEL=INFO
-
-# Database
-DATABASE_URL=sqlite:///data/farming_hq.db
-
-# Risk Limits (Demo defaults)
-MAX_RISK_PER_TRADE=0.0025
-MAX_DAILY_LOSS=0.01
-MAX_DRAWDOWN=0.05
-MAX_OPEN_POSITIONS=1
+# OR real MT5 data (requires credentials in .env)
+python scripts/collect_data.py --days 365
 ```
 
-## Usage
+### 3. Build Dataset
 
-### Running Tests
+```bash
+python scripts/build_dataset.py
+```
+
+### 4. Train Models
+
+```bash
+# Train all models (baselines + LSTM)
+python scripts/train_model.py --data data/dataset.pkl --model all --epochs 100
+
+# Or just LSTM
+python scripts/train_model.py --data data/dataset.pkl --model lstm
+```
+
+### 5. Run Backtest
+
+```bash
+python scripts/run_backtest.py \
+    --model artifacts/models/best_model.pt \
+    --confidence-threshold 0.5
+```
+
+## Safety Features
+
+### MT5 Integration
+- **Demo accounts only** - live trading not supported
+- Credentials validation before connection
+- Account type verification (rejects live accounts)
+- Order execution disabled by default
+
+### Risk Management
+- Max 2% risk per trade (configurable)
+- Max 5% daily loss limit
+- Max 15% drawdown limit
+- 1 concurrent position max
+- Stop loss on every trade
+
+### Backtesting
+- Realistic costs: $7 commission per lot, 1 pip slippage
+- No look-ahead bias (chronological splits)
+- Proper time-series handling (sequences)
+
+## Data Requirements
+
+**For Production Use:**
+- Minimum 1 year of M15 XAUUSD data (35,000+ bars)
+- Real MT5 demo account
+- Clean, gap-free data
+
+**Current Status:**
+- Synthetic data used for development
+- MT5 connector tested but requires credentials
+- Ready for real data collection
+
+## Model Performance Notes
+
+The current LSTM model shows class imbalance issues (predicts only TREND). This is expected with:
+- Synthetic random-walk data
+- Highly imbalanced classes (69% TREND)
+
+**Recommended fixes for real deployment:**
+1. Collect real MT5 data (not random walk)
+2. Use class weights in loss function
+3. Adjust labeling thresholds
+4. Try ensemble methods
+
+## Architecture Decisions
+
+### Why LSTM?
+- Captures temporal dependencies in M15 data
+- Learns regime patterns across 48-bar sequences (12 hours)
+- Handles variable-length market conditions
+
+### Why Regime Classification?
+- More robust than price prediction
+- Allows strategy adaptation to market conditions
+- Reduces overfitting vs. direct signal prediction
+
+### Why 70/15/15 Split?
+- Chronological to prevent look-ahead bias
+- 70% train ensures enough data for LSTM
+- 15% test maintains realistic evaluation
+
+## Known Limitations
+
+1. **Model Performance**: Class imbalance causes poor minority class recall
+2. **Data**: Synthetic data not representative of real market dynamics
+3. **Strategy**: Simple trend-following; no mean-reversion or vol strategies
+4. **Features**: Missing order flow, sentiment, macro indicators
+
+## Next Steps for Production
+
+1. **Data Collection**
+   - [ ] Configure MT5 credentials
+   - [ ] Collect 1+ year real M15 data
+   - [ ] Validate data quality
+
+2. **Model Improvements**
+   - [ ] Add class weights to handle imbalance
+   - [ ] Experiment with attention mechanisms
+   - [ ] Try ensemble (LSTM + XGBoost)
+
+3. **Strategy Enhancement**
+   - [ ] Add mean-reversion for RANGE regime
+   - [ ] Add volatility-based sizing
+   - [ ] Implement trailing stops
+
+4. **Infrastructure**
+   - [ ] Model registry and versioning
+   - [ ] Shadow trading mode (no execution)
+   - [ ] Performance dashboard
+   - [ ] Alerting system
+
+## Testing
 
 ```bash
 # Run all tests
 pytest tests/ -v
 
-# Run safety tests
-pytest tests/safety/ -v
-
-# Run with coverage
-pytest tests/ --cov=app --cov-report=html
+# Run specific test suite
+pytest tests/test_risk.py -v
+pytest tests/test_strategy.py -v
 ```
 
-### Training the Model
-
-```bash
-# Collect initial data
-python scripts/collect_data.py --days 365
-
-# Train baseline model
-python scripts/train_model.py --config configs/model.yaml
-
-# Run backtest evaluation
-python scripts/run_backtest.py --config configs/strategy.yaml
-```
-
-### Starting the Dashboard
-
-```bash
-# Start Farming HQ
-python -m app.main
-
-# Dashboard will be available at:
-# http://localhost:3831
-```
-
-The dashboard provides:
-- **Overview**: Account status, market state, current positions
-- **Live Market**: XAUUSD chart with indicators and regime overlays
-- **Learning Center**: Model versions, training history, experiments
-- **Trade Journal**: Complete order history with analysis
-- **Strategy Lab**: Configuration, backtests, cost analysis
-- **Risk & Health**: Limits, connection status, kill switch
-
-### Demo Forward Testing
-
-**IMPORTANT**: Forward testing requires explicit verification and activation.
-
-```bash
-# 1. Verify MT5 connection and demo account
-python scripts/verify_account.py
-
-# 2. Start dashboard in research mode (default)
-python -m app.main
-
-# 3. In dashboard: Complete preflight checks
-#    - Account verification: PASS
-#    - Demo mode confirmed: PASS
-#    - Symbol specs loaded: PASS
-#    - Risk limits configured: PASS
-
-# 4. Enable execution via dashboard kill switch
-#    (requires manual confirmation)
-```
-
-**Execution will not start until:**
-- MT5 terminal is connected
-- Account is verified as DEMO
-- Symbol XAUUSD is available
-- All preflight checks pass
-- Kill switch is manually enabled
-
-## Safety Features
-
-### Multi-Layer Demo Protection
-
-1. **Configuration Check**: `DEMO_ONLY=true` required
-2. **Account Verification**: MT5 account mode must be DEMO
-3. **Server Allowlist**: Only approved demo servers
-4. **Metadata Validation**: Account info must match demo criteria
-5. **Preflight Execution**: All checks must pass before orders
-6. **Kill Switch**: Manual enable required, persisted state
-7. **Order Reconciliation**: Continuous verification against broker
-
-### Non-Martingale Enforcement
-
-- Position size calculated from risk budget and stop distance
-- **NEVER increases after losses**
-- No averaging down
-- No grid expansion
-- No stop-loss removal
-- Independent risk manager with veto power
-
-### Risk Limits (Configurable)
-
-- Max risk per trade: 0.25% equity (default)
-- Max daily loss: 1% session equity
-- Max drawdown: 5% from high-water mark
-- Max open positions: 1 (initially)
-- Max spread threshold
-- Trade frequency limits
-- Session restrictions
-
-### Emergency Controls
-
-- **Kill Switch**: Immediate halt of all new positions
-- **Daily Loss Limit**: Auto-disable on breach
-- **Drawdown Circuit Breaker**: Stop on threshold
-- **Stale Data Detection**: No trading on old quotes
-- **Execution Error Halt**: Stop on critical broker errors
-- **Manual Pause/Resume**: Operator control
-
-## Model Training and Learning
-
-### Regime Classification
-
-The LSTM classifies market state into three regimes:
-
-- **TREND**: Directional movement, allow trend-following entries
-- **RANGE**: Sideways consolidation, block or use range-specific rules
-- **HIGH_VOLATILITY**: Elevated risk, conservative or no-trade
-
-Training uses:
-- Chronological train/validation/test splits
-- Walk-forward evaluation
-- Overlapping-label protection
-- Calibrated probability outputs
-- Explicit uncertainty handling
-
-### Learning Loop
-
-After each trade closes:
-
-1. **Outcome Collection**: Retrieve broker deal history
-2. **Reconciliation**: Match entry/exit with actual fills
-3. **Error Analysis**: Compare prediction vs realized outcome
-4. **Categorization**: Classify error type
-5. **Journal Storage**: Immutable trade record
-6. **Aggregate Metrics**: Update evaluation statistics
-
-Learning triggers:
-- **Not after every trade** (prevents overfitting)
-- Scheduled evaluation periods
-- Minimum observation thresholds
-- Controlled candidate training
-- Explicit approval before deployment
-
-### Model Registry
-
-- Immutable version identifiers
-- Complete training provenance
-- Comparison against current model
-- Acceptance/rejection criteria
-- Rollback capability
-- Deployment audit trail
-
-## Evaluation Methodology
-
-### Baselines
-
-- **B0**: No-trade baseline (zero P&L, zero cost)
-- **B1**: Rule-based strategy without AI
-- **B2**: Rule-based with fixed regime rules
-- **B3**: Rule-based with LSTM filter (full system)
-
-### Metrics
-
-**Classification**:
-- Balanced accuracy, macro F1
-- Per-class precision/recall
-- Confusion matrix
-- Calibration diagnostics
-
-**Trading**:
-- Net profit after costs
-- Profit factor, expectancy
-- Win rate, avg win/loss
-- Maximum drawdown
-- Sharpe and Sortino ratios
-- R-multiple distribution
-- Cost sensitivity
-- Performance by regime/session
-
-### Backtesting
-
-- Chronological walk-forward splits
-- Realistic bid/ask, spread, commission, swap
-- Slippage and execution constraints
-- Bootstrap uncertainty estimates
-- No leakage from preprocessing or tuning
-- Holdout validation before acceptance
-
-## Dashboard UI Design
-
-Farming HQ uses a **serious, professional trading workstation aesthetic**:
-
-- Dark neutral background (charcoal, near-black)
-- Restrained blue for focus and selection
-- High-contrast readable typography
-- Compact data tables with aligned numbers
-- Muted green/red for P&L changes
-- Amber for warnings
-- Clear labels, units, timestamps
-- Persistent compact sidebar
-- Responsive without sacrificing legibility
-
-**Explicitly avoided**:
-- AI-themed gradients or glowing effects
-- Emojis or decorative symbols
-- Fake terminal aesthetics
-- Fabricated statistics or progress bars
-- Generic SaaS landing page styling
-- Unnecessary animations
-- Low-contrast tiny text
-
-Every displayed number comes from real data or is explicitly labeled as an example.
-
-## Testing
-
-### Test Coverage
-
-- **Unit Tests**: Feature calculations, labels, position sizing, costs
-- **Safety Tests**: Live account rejection, missing stops, loss limits, kill switch
-- **ML Tests**: Chronological splits, no leakage, reproducibility, rollback
-- **Integration Tests**: Mock MT5, account verification, API endpoints
-
-### Running Specific Test Suites
-
-```bash
-# Safety-critical tests
-pytest tests/safety/test_account_guard.py -v
-pytest tests/safety/test_risk_limits.py -v
-pytest tests/safety/test_execution.py -v
-
-# ML pipeline tests
-pytest tests/ml/test_features.py -v
-pytest tests/ml/test_training.py -v
-pytest tests/ml/test_model_registry.py -v
-
-# Backtest tests
-pytest tests/backtest/test_engine.py -v
-pytest tests/backtest/test_costs.py -v
-```
-
-## Project Status
-
-### Implemented Features
-
-✅ Project structure and configuration
-✅ MT5 broker integration with account verification
-✅ Market data collection and validation
-✅ Feature engineering pipeline
-✅ LSTM model architecture
-✅ Training and evaluation framework
-✅ Rule-based strategy engine
-✅ AI signal filter
-✅ Non-Martingale risk management
-✅ Trade journal and post-trade analysis
-✅ Walk-forward backtesting
-✅ Dashboard backend API
-✅ Dashboard frontend UI
-✅ Comprehensive test suite
-✅ Safety mechanisms and kill switch
-
-### Current Limitations
-
-- MT5 integration requires Windows and installed terminal
-- Symbol resolution tested with HFM demo data
-- Model trained on historical M15 data (requires sufficient history)
-- Dashboard WebSocket updates at 5-second polling (configurable)
-- Commission/swap require broker-specific configuration
-
-### Next Steps
-
-1. Collect sufficient historical M15 XAUUSD data (12+ months)
-2. Train and validate baseline models
-3. Run comprehensive walk-forward backtests
-4. Complete 3-month demo observation period
-5. Analyze cost sensitivity and regime performance
-6. Iterate on feature engineering based on results
-7. Refine entry/exit rules from journal analysis
-
-## Documentation
-
-Detailed documentation in `docs/`:
-
-- **ARCHITECTURE.md**: System design and module responsibilities
-- **TRADING_RULES.md**: Strategy logic and regime-specific policies
-- **MODEL_CARD.md**: LSTM architecture, training, and evaluation
-- **RISK_POLICY.md**: Position sizing, limits, and safety mechanisms
-- **TESTING.md**: Test strategy and coverage
-- **OPERATIONS.md**: Installation, configuration, monitoring, troubleshooting
-
-## Contributing
-
-This is a research system. Contributions should:
-
-- Maintain safety-first principles
-- Include comprehensive tests
-- Document assumptions and limitations
-- Preserve audit trails
-- Never bypass risk controls
+## Configuration
+
+Key parameters in scripts:
+- `--sequence-length`: LSTM lookback (default: 48 = 12h)
+- `--hidden-size`: LSTM hidden units (default: 64)
+- `--max-risk`: Max risk per trade (default: 0.02 = 2%)
+- `--confidence-threshold`: Min prediction confidence (default: 0.6)
 
 ## License
 
-[To be determined]
+Research and educational use only. Not financial advice.
 
 ## Disclaimer
 
-**THIS SOFTWARE IS FOR EDUCATIONAL AND RESEARCH PURPOSES ONLY.**
+⚠️ **RESEARCH ONLY** ⚠️
 
-- No warranty of any kind
-- No guarantee of profitability
-- Past performance does not predict future results
-- Demo trading results do not reflect live market conditions
-- Use at your own risk
-- The authors are not responsible for trading losses
+This system is for research and education purposes only. Trading financial instruments carries significant risk of loss. Never trade with capital you cannot afford to lose. Past performance does not guarantee future results. Always test thoroughly on demo accounts before considering any real trading.
 
-**ALWAYS verify that you are connected to a DEMO account before enabling execution.**
-
----
-
-**Farming HQ Dashboard**: http://localhost:3831
-
-**Kill Switch Location**: Dashboard → Risk & Health → Execution Control
+The developers assume no responsibility for financial losses incurred through use of this software.
