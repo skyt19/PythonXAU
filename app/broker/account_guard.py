@@ -71,6 +71,12 @@ class AccountGuard:
         "HFM-Demo",
         "HotForex-Demo",
         "HF-Demo",
+        "HFMarketsGlobal-Demo",
+        "HFMarketsGlobal-Demo 4",
+        "HFMarketsGlobal-Demo4",
+        "HFMarkets-Demo",
+        "HFMarkets-Demo 4",
+        "HFMarkets-Demo4",
     }
 
     # Cache verification for this duration
@@ -174,14 +180,20 @@ class AccountGuard:
         account_equity = account_info.equity
         account_leverage = account_info.leverage
 
-        # Determine account mode from trade_mode
-        # MT5 trade_mode: 0=disabled, 1=real, 2=demo, 3=contest
+        # Determine account mode from trade_mode.
+        # MT5 constants (verified against installed MetaTrader5 package):
+        #   ACCOUNT_TRADE_MODE_DEMO    = 0
+        #   ACCOUNT_TRADE_MODE_CONTEST = 1
+        #   ACCOUNT_TRADE_MODE_REAL    = 2
+        # Using the library constants directly rather than hardcoded literals
+        # avoids the class-of-bug where a demo account is treated as live (or
+        # vice versa) because of a swapped mapping.
         trade_mode = account_info.trade_mode
-        if trade_mode == 2:
+        if trade_mode == mt5.ACCOUNT_TRADE_MODE_DEMO:
             account_mode = AccountMode.DEMO
-        elif trade_mode == 3:
-            account_mode = AccountMode.CONTEST  # Treat contest as demo-equivalent
-        elif trade_mode == 1:
+        elif trade_mode == mt5.ACCOUNT_TRADE_MODE_CONTEST:
+            account_mode = AccountMode.CONTEST
+        elif trade_mode == mt5.ACCOUNT_TRADE_MODE_REAL:
             account_mode = AccountMode.REAL
         else:
             account_mode = AccountMode.UNKNOWN

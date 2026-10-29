@@ -140,7 +140,7 @@ class DataCollector:
                 symbol=self.symbol,
                 timeframe=timeframe,
                 start=start_date,
-                count=approx_bars + 100,  # Extra buffer
+                end=end_date,
             )
 
             if df is None or df.empty:
@@ -149,6 +149,11 @@ class DataCollector:
                 return result
 
             logger.info(f"Retrieved {len(df)} bars from MT5")
+            logger.info(f"Timestamp dtype: {df['timestamp'].dtype}")
+            logger.info(f"Timestamp min: {df['timestamp'].min()}")
+            logger.info(f"Timestamp max: {df['timestamp'].max()}")
+            logger.info(f"Requested start: {start_date}")
+            logger.info(f"Requested end: {end_date}")
 
             # Filter to requested date range
             df = df[

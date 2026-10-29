@@ -12,7 +12,9 @@ from fastapi.testclient import TestClient
 def client():
     """Create a test client for the FastAPI application."""
     from app.main import app
-    return TestClient(app)
+
+    with TestClient(app) as test_client:
+        yield test_client
 
 
 class TestApplicationStartup:

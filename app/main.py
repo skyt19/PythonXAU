@@ -17,6 +17,7 @@ from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 
 from app.config import config
+from app import database
 from app.database import DatabaseManager
 from app.logging_config import setup_logging
 
@@ -45,6 +46,7 @@ async def lifespan(app: FastAPI):
         logger.info("Initializing database...")
         db_manager = DatabaseManager(config.database_url)
         db_manager.create_tables()
+        database.db_manager = db_manager
         logger.info("Database initialized successfully")
 
         # Create necessary directories
@@ -73,7 +75,6 @@ async def lifespan(app: FastAPI):
         raise
 
     finally:
-        # Shutdown
         logger.info("Shutting down...")
         if db_manager:
             try:
@@ -81,6 +82,9 @@ async def lifespan(app: FastAPI):
                 logger.info("Database closed")
             except Exception as e:
                 logger.error(f"Error closing database: {e}")
+            finally:
+                database.db_manager = None
+                db_manager = None
         logger.info("Shutdown complete")
 
 

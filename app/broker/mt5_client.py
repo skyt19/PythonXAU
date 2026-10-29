@@ -103,7 +103,7 @@ class MT5Client:
         symbol: str,
         timeframe: int,
         start: datetime,
-        count: int,
+        end: datetime,
     ) -> Optional[pd.DataFrame]:
         """
         Get OHLC data.
@@ -122,7 +122,7 @@ class MT5Client:
             return None
 
         # Get rates
-        rates = mt5.copy_rates_from(symbol, timeframe, start, count)
+        rates = mt5.copy_rates_range(symbol, timeframe, start, end)
         if rates is None or len(rates) == 0:
             logger.warning(f"No data returned for {symbol}")
             return None

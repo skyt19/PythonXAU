@@ -82,3 +82,7 @@ htmlcov/
 .mypy_cache/
 .dmypy.json
 dmypy.json
+
+# Stray credential-bearing copies (never commit these)
+$env
+python

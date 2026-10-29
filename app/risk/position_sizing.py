@@ -31,13 +31,28 @@ class PositionSizer:
         max_risk_per_trade: float = 0.02,  # 2% max risk per trade
         max_lots: float = 1.0,
         min_lots: float = 0.01,
+        pip_value_per_lot: float = 10.0,
+        volume_step: float = 0.01,
     ):
+        """
+        Initialize position sizer.
+
+        Args:
+            max_risk_per_trade: Maximum fraction of balance risked per trade
+            max_lots: Broker maximum volume
+            min_lots: Broker minimum volume
+            pip_value_per_lot: Dollar value of one pip for 1.00 lot.
+                XAUUSD on HFM: 0.10 move = 10 ticks x $1.00/tick = $10.00 per lot.
+            volume_step: Broker volume step
+        """
         if not 0 < max_risk_per_trade <= 0.05:
             raise ValueError("max_risk_per_trade must be (0, 0.05]")
 
         self.max_risk_per_trade = max_risk_per_trade
         self.max_lots = max_lots
         self.min_lots = min_lots
+        self.pip_value_per_lot = pip_value_per_lot
+        self.volume_step = volume_step
 
     def calculate(
         self,
@@ -46,7 +61,13 @@ class PositionSizer:
         stop_loss_price: float,
         confidence: float = 1.0,
     ) -> Optional[PositionSize]:
-        """Calculate position size."""
+        """
+        Calculate position size.
+
+        Returns None when no volume can satisfy the risk budget. The result is
+        never rounded UP to the broker minimum: if the minimum lot would
+        exceed the risk budget, the trade is rejected instead.
+        """
         if balance <= 0:
             logger.warning("Invalid balance")
             return None
@@ -55,7 +76,7 @@ class PositionSizer:
             logger.warning("Invalid prices")
             return None
 
-        # Calculate stop distance in pips
+        # Stop distance in pips (1 pip = 0.10 price move for XAUUSD)
         stop_distance_pips = abs(entry_price - stop_loss_price) * 10
 
         if stop_distance_pips < 10:
@@ -66,13 +87,26 @@ class PositionSizer:
         risk_amount = balance * self.max_risk_per_trade * confidence
 
         # Position size in lots
-        # For XAUUSD: 1 lot = 100 oz, pip value ≈ $10 per lot
-        pip_value_per_lot = 10.0
-        lots = risk_amount / (stop_distance_pips * pip_value_per_lot)
+        lots = risk_amount / (stop_distance_pips * self.pip_value_per_lot)
 
-        # Apply limits
-        lots = max(self.min_lots, min(self.max_lots, lots))
-        lots = round(lots, 2)
+        # Round DOWN to the broker volume step. Rounding up would silently
+        # breach the risk budget.
+        lots = (lots // self.volume_step) * self.volume_step
+        lots = round(lots, 4)
+
+        if lots < self.min_lots:
+            # The smallest tradable lot exceeds the risk budget. Rounding up to
+            # the broker minimum would breach the risk limit, so reject.
+            min_lot_risk = self.min_lots * stop_distance_pips * self.pip_value_per_lot
+            logger.warning(
+                f"Trade rejected: min lot {self.min_lots} risks ${min_lot_risk:.2f} "
+                f"but risk budget is only ${risk_amount:.2f} "
+                f"(balance ${balance:.2f}, {stop_distance_pips:.0f} pip stop)"
+            )
+            return None
+
+        if lots > self.max_lots:
+            lots = self.max_lots
 
         position_value = lots * 100 * entry_price
 
@@ -82,6 +116,7 @@ class PositionSizer:
             stop_distance_pips=stop_distance_pips,
             position_value=position_value,
         )
+
 
 
 class RiskManager:
